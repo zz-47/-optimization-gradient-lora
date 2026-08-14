@@ -13,7 +13,7 @@ LoRA gradient geometry on real SLM weights — norm decay to delta structure to 
 | 3 | Why low-rank GD works | Full fine-tuning is energy-concentrated but tail-sprawling; the constraint wins by filtering the harmful tail | ✅ Complete (4 experiments measured) |
 | 4 | Rank–learning-rate interaction | Rank is a hard capacity limit; LR is a quality dial; the effective step is `∝ α·lr/r` | ✅ Complete (4 experiments measured) |
 | 5 | Scale/alpha dynamics | `α` is a weak, Adam-normalized dial; the robust property is the ratio `α/r`; α rescues a smaller rank | ✅ Complete (4 experiments measured) |
-| 6 | Deployment: merge criteria | The norm plateau is the early-stop point; freezing at the plateau is near-lossless; the merge is exact by linearity | ⬜ Scaffolded |
+| 6 | Deployment: merge criteria | The merge is exact by linearity; the gradient-norm plateau is *not* the loss-floor point — gate stop/freeze on the loss floor | ✅ Complete (4 experiments measured) |
 
 ---
 
@@ -23,6 +23,7 @@ LoRA gradient geometry on real SLM weights — norm decay to delta structure to 
 -optimization-gradient-lora/
 ├── README.md                          ← this file
 ├── NOTATION.md                        ← symbol registry across all units
+├── INTUITION.md                       ← the why: purpose of each gradient + the equation behind each figure
 ├── requirements.txt                   ← pinned env
 ├── .venv/                             ← local environment (hidden, gitignored)
 ├── ogl_cache/                         ← cached matrices, gradients, deltas
@@ -58,7 +59,7 @@ LoRA gradient geometry on real SLM weights — norm decay to delta structure to 
 | `G₁ / ΣG_t` | Gradient at step 1 / accumulated over the run |
 | `cos θ_i` | Principal-angle cosines = `σ_i(U_Δ[:,:k]ᵀ U_G[:,:k])` |
 
-Full definitions and named operations in [`NOTATION.md`](NOTATION.md).
+Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition — what each gradient does and the equation behind every figure — in [`INTUITION.md`](INTUITION.md).
 
 ---
 
@@ -153,11 +154,20 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md).
 
 ---
 
-## Unit 6 — Deployment: merge criteria (scaffolded)
+## Unit 6 — Deployment: merge criteria (complete)
 
 **Design.** On the controlled rank-4 task (W_gate layer 0, r=8, α=16, Adam lr 1e-2, 300 steps) record per-step `‖∇B‖` and loss, then read three deployment cuts. C1 early stop: the floor at the plateau step `s*` (first step where `‖∇B‖ < 0.01·‖∇B‖₀`) vs the floor at step 300. C2 freeze: `A` frozen at `s*`, continued to 300, floor vs the unfrozen run. C3 merge: output-level linearity check `‖(W+ΔW)·Xᵀ − (W·Xᵀ + ΔW·Xᵀ)‖/‖·‖` at float precision. C4 per-layer: the plateau step and costs for W_gate at layers 0/10/20.
 
-**Verdict in one line.** *(pending measurement — the recipe is: stop when the norm plateaus, freeze the block that is done, merge by linearity.)*
+**Measured findings (SmolLM2-135M, not assumed):**
+
+| # | Claim | Predicted | Measured | Verdict |
+|---|---|---|---|---|
+| C1 | The plateau is the early-stop point | floor at `s*` within ~1.5× | floor(s*)=1.63e-5 vs floor(300)=2.39e-6, cost 6.8×; layer 20 0.96×, layer 10 0.28× | ❌ Reversed — loss keeps falling ~6× after the gradient crosses the 1% line |
+| C2 | Freezing `A` at the plateau is near-lossless | within ~1.5× | floor_frozen=1.74e-5 vs floor_full=2.39e-6, cost 7.3× | ❌ Reversed — `A` still works at `s*` |
+| C3 | The merge is exact by linearity | rel err ≤ ~1e-7 | rel err 2.81e-7; `(α/r)B·A` recon error 0.0 | ✅ Holds exactly |
+| C4 | The criteria are layer-local | steps and costs differ | s* clusters (110–118); cost spans 0.28–6.4× | ✅ Holds — a universal cut is unsafe |
+
+**Verdict in one line.** The merge is free — exact to 2.8e-7 by linearity — but the gradient-norm plateau is *not* the loss-floor point: the loss improves ~6× after `‖∇B‖` falls 2 orders, and cutting there costs 6.8× at the core matrix (and varies 0.28–6.4× per layer). The corrected recipe: **merge by linearity, gate stop/freeze on the loss floor, not the gradient norm.**
 
 ---
 
