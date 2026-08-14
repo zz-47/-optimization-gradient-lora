@@ -10,10 +10,10 @@ LoRA gradient geometry on real SLM weights — norm decay to delta structure to 
 |---|------|-------------|--------|
 | 1 | Gradient norm geometry | The LoRA descent is structured: `A` frozen at step 0, norm decay, matrix-set gradient scale | ✅ Complete (4 experiments measured) |
 | 2 | The learned delta | The landing is concentrated at the injected rank and aligned with its own gradient | ✅ Complete (4 experiments measured) |
-| 3 | Why low-rank GD works | A full fine-tuning produces a similar delta plus trailing noise — the constrained path wins by structure | ⬜ Planned |
-| 4 | Rank–learning-rate interaction | The `rank · LR` product sets the achievable floor | ⬜ Planned |
-| 5 | Scale/alpha dynamics | `α/r` controls the effective step size; optimal α is linear in rank | ⬜ Planned |
-| 6 | Deployment: merge criteria | Gradient-norm convergence gives the early-stop and freeze point | ⬜ Planned |
+| 3 | Why low-rank GD works | Full fine-tuning is energy-concentrated but tail-sprawling; the constraint wins by filtering the harmful tail | ✅ Complete (4 experiments measured) |
+| 4 | Rank–learning-rate interaction | Rank is a hard capacity limit; LR is a quality dial; the effective step is `∝ α·lr/r` | ✅ Complete (4 experiments measured) |
+| 5 | Scale/alpha dynamics | `α` is a weak, Adam-normalized dial; the robust property is the ratio `α/r`; α rescues a smaller rank | ✅ Complete (4 experiments measured) |
+| 6 | Deployment: merge criteria | The norm plateau is the early-stop point; freezing at the plateau is near-lossless; the merge is exact by linearity | ⬜ Scaffolded |
 
 ---
 
@@ -99,6 +99,68 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md).
 
 ---
 
+## Unit 3 — Why low-rank GD works (complete)
+
+**Design.** Same task, same inputs, same optimizer, trained twice per matrix: once as LoRA (r=8, cached), once as full fine-tuning where the entire `W` is a free parameter (`ΔW_F = P_final − W`). Compare spectra (`k90`, strong count, `top1`), aligned fraction (energy of `ΔW_F` inside the LoRA core), principal-angle cosines vs `ΔW_L` and vs the true target `E`, and loss floors.
+
+**Measured findings (SmolLM2-135M, not assumed):**
+
+| # | Claim | Predicted | Measured | Verdict |
+|---|---|---|---|---|
+| C1 | Full-FT spreads beyond injected rank | `k90(F)` ≫ 4 | `k90(F)` 4/6/4/4 but strong 139–150, rank 178–192 | ⚠️ Partial — energy concentrates, count sprawls |
+| C2 | LoRA core holds most free energy | aligned ≥ 0.9 | W_Q 0.992; W_V 0.011; W_gate 0.002; W_up 0.003 | ❌ Reversed — W_Q only |
+| C3 | Core directions match | cos ≥ 0.9 | W_Q 1.000; others 0.075–0.168 | ❌ Reversed — W_Q only |
+| C4 | Full-FT finds target as well | cos(DF,E) ≥ cos(DL,E) | mixed; both low (E is not the natural basis; G=E·XᵀX is) | ⚠️ Mixed |
+| C5 | Floors comparable | ratio ~1 | 0.58, 35.6, 0.91, 6.0 | ❌ Reversed — constraint wins |
+
+**Verdict in one line.** The constrained path wins by *filtering a harmful tail*, not by matching full-FT: unconstrained training stays energy-concentrated (k90 ≈ 4) but sprawls across ~145 strong directions, and where the deltas diverge LoRA reaches a 6–35× lower floor. Only W_Q (square in the observable, d = n = 576) pins the solution down and aligns with full-FT (cos 1.000).
+
+---
+
+## Unit 4 — Rank × learning rate (complete)
+
+**Design.** Sweep `r ∈ {1,2,4,8,16}` × `LR ∈ {1e-3, 3e-3, 1e-2, 3e-2}` on the controlled rank-4 task (W_Q), recording loss floor, steps-to-threshold, and final `‖∇B‖`. Multi-matrix check on W_V and W_gate.
+
+**Measured findings (SmolLM2-135M, not assumed):**
+
+| # | Claim | Predicted | Measured | Verdict |
+|---|---|---|---|---|
+| C1 | Capacity threshold at the true rank | cliff at r=4 | r=1 5.25e-3, r=2 3.10e-3 **identical across all LRs**; r=4 drops to 2e-6 | ✅ Holds — sharp cliff, LR-independent below |
+| C2 | Floor follows `rank × LR` | equal product → equal floor | fixed-LR floors worsen with rank (2.04e-6→7.78e-6 at lr=1e-2) | ❌ Not supported — effective step `∝ α/r` |
+| C3 | Product too small fails | budget edge | O/x grid is capacity-only; budget edge only in floors (lr=1e-3 → ~2e-5) | ⚠️ Test too weak |
+| C4 | LR too large degrades floor | stability edge | lr=3e-2 worse than lr=1e-2 at every r≥4 | ✅ Supported |
+| C5 | Surface transfers | W_V/W_gate same shape | same cliff + sweet spot + degradation | ✅ Holds |
+
+**Verdict in one line.** Rank is a hard capacity limit — sub-capacity floors (5.25e-3, 3.10e-3) are LR-independent to three significant figures — and LR is a quality dial with a flat working band (2–8e-6) between a budget edge (lr=1e-3) and a stability edge (lr=3e-2); the effective step is `∝ α·lr/r`, not the `rank × LR` product.
+
+---
+
+## Unit 5 — Scale and alpha (complete)
+
+**Design.** Sweep `α ∈ {2,4,8,16,32,64}` at r=8, lr=1e-2 on the controlled rank-4 task (W_Q). Test the ratio law with equal-`α/r` pairs across r=4/8/16, and the rescue test (can a rank-4 adapter at high α match rank-8 at mid α?).
+
+**Measured findings (SmolLM2-135M, not assumed):**
+
+| # | Claim | Predicted | Measured | Verdict |
+|---|---|---|---|---|
+| C1 | Floor improves with α then degrades | U-shape | floors 2.65e-6–7.06e-6 across α=2..64 (2.7×); no systematic rise | ❌ Reversed — flat band, weak dial |
+| C2 | Floor depends on `α/r`, not α alone | equal ratio → equal floor | ratio-4 group tight (2.68/3.37/4.76e-6); ratio-2 degrades at r16 | ✅ Holds, caveat at high rank/low ratio |
+| C3 | Optimal α is linear in rank | constant optimal `α/r` | constant ratio keeps floors in-band across r | ✅ Holds |
+| C4 | α rescues a smaller rank | r=4 high α ≥ r=8 best | r=4/α32 3.51e-6 beats r=8/α16 7.06e-6 | ✅ Holds |
+| C5 | α stability ceiling exists | very large α degrades | none at r=8/α64; hint at r=4 | ⚠️ Partial |
+
+**Verdict in one line.** α is a weak, Adam-normalized step dial (a ~√k effect on the normalized step) with one robust property — the **ratio**: floor follows `α/r`, the constant-ratio rule transfers across ranks, and a rank-4 adapter at high α (3.51e-6) beats a rank-8 config at mid α (7.06e-6).
+
+---
+
+## Unit 6 — Deployment: merge criteria (scaffolded)
+
+**Design.** On the controlled rank-4 task (W_gate layer 0, r=8, α=16, Adam lr 1e-2, 300 steps) record per-step `‖∇B‖` and loss, then read three deployment cuts. C1 early stop: the floor at the plateau step `s*` (first step where `‖∇B‖ < 0.01·‖∇B‖₀`) vs the floor at step 300. C2 freeze: `A` frozen at `s*`, continued to 300, floor vs the unfrozen run. C3 merge: output-level linearity check `‖(W+ΔW)·Xᵀ − (W·Xᵀ + ΔW·Xᵀ)‖/‖·‖` at float precision. C4 per-layer: the plateau step and costs for W_gate at layers 0/10/20.
+
+**Verdict in one line.** *(pending measurement — the recipe is: stop when the norm plateaus, freeze the block that is done, merge by linearity.)*
+
+---
+
 ## What this series builds toward
 
-The 13-repo study series maps LoRA from decomposition through deployment on CPU-only real SLM weights. This repo is the mechanism core: unit 1 measures the path, unit 2 the landing, unit 3 proves the constrained path wins by structure, units 4–5 map the rank·LR·α operating space, unit 6 turns the norm plateau into a merge criterion. Each notebook is self-contained and every number is measured on real matrices.
+The 13-repo study series maps LoRA from decomposition through deployment on CPU-only real SLM weights. This repo is the mechanism core: unit 1 measures the path, unit 2 the landing, unit 3 shows the constraint wins by filtering the harmful tail, units 4–5 map the rank·LR·α operating space, unit 6 turns the norm plateau into a merge criterion (early stop, freeze, exact merge). Each notebook is self-contained and every number is measured on real matrices.
