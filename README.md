@@ -63,7 +63,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 1 — Gradient norm geometry (complete)
+## Study 1 — Gradient norm geometry (complete)
 
 **Design.** Train real LoRA adapters (r=8, α=16, Adam lr 1e-2) to reconstruct outputs of real SmolLM2-135M matrices from real token embeddings. Record per-step Frobenius norms of the two adapter blocks, `‖∇A‖_F` and `‖∇B‖_F`, plus relative MSE. Four objects: raw trajectories on `W_gate`; the frozen-A initial condition; attention-vs-FFN at matched task strength; per-layer trend (0/10/20); plus an end-to-end fidelity run inside the live model under cross-entropy.
 
@@ -82,7 +82,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 2 — The learned delta (complete)
+## Study 2 — The learned delta (complete)
 
 **Design.** Re-run the same rig but record the landing: the final `ΔW` and the gradient records `G₁` (step 1) and `ΣG_t` (accumulated) from the same loop, for all four matrices. SVD each delta (rank, strong count, `k90`, `top1`) and compare its top subspace against the gradient's via principal-angle cosines.
 
@@ -100,7 +100,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 3 — Why low-rank GD works (complete)
+## Study 3 — Why low-rank GD works (complete)
 
 **Design.** Same task, same inputs, same optimizer, trained twice per matrix: once as LoRA (r=8, cached), once as full fine-tuning where the entire `W` is a free parameter (`ΔW_F = P_final − W`). Compare spectra (`k90`, strong count, `top1`), aligned fraction (energy of `ΔW_F` inside the LoRA core), principal-angle cosines vs `ΔW_L` and vs the true target `E`, and loss floors.
 
@@ -118,7 +118,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 4 — Rank × learning rate (complete)
+## Study 4 — Rank × learning rate (complete)
 
 **Design.** Sweep `r ∈ {1,2,4,8,16}` × `LR ∈ {1e-3, 3e-3, 1e-2, 3e-2}` on the controlled rank-4 task (W_Q), recording loss floor, steps-to-threshold, and final `‖∇B‖`. Multi-matrix check on W_V and W_gate.
 
@@ -136,7 +136,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 5 — Scale and alpha (complete)
+## Study — Scale and alpha (complete)
 
 **Design.** Sweep `α ∈ {2,4,8,16,32,64}` at r=8, lr=1e-2 on the controlled rank-4 task (W_Q). Test the ratio law with equal-`α/r` pairs across r=4/8/16, and the rescue test (can a rank-4 adapter at high α match rank-8 at mid α?).
 
@@ -154,7 +154,7 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 
 ---
 
-## Unit 6 — Deployment: merge criteria (complete)
+## Study 6 — Deployment: merge criteria (complete)
 
 **Design.** On the controlled rank-4 task (W_gate layer 0, r=8, α=16, Adam lr 1e-2, 300 steps) record per-step `‖∇B‖` and loss, then read three deployment cuts. C1 early stop: the floor at the plateau step `s*` (first step where `‖∇B‖ < 0.01·‖∇B‖₀`) vs the floor at step 300. C2 freeze: `A` frozen at `s*`, continued to 300, floor vs the unfrozen run. C3 merge: output-level linearity check `‖(W+ΔW)·Xᵀ − (W·Xᵀ + ΔW·Xᵀ)‖/‖·‖` at float precision. C4 per-layer: the plateau step and costs for W_gate at layers 0/10/20.
 
@@ -168,9 +168,3 @@ Full definitions and named operations in [`NOTATION.md`](NOTATION.md). Intuition
 | C4 | The criteria are layer-local | steps and costs differ | s* clusters (110–118); cost spans 0.28–6.4× | ✅ Holds — a universal cut is unsafe |
 
 **Verdict in one line.** The merge is free — exact to 2.8e-7 by linearity — but the gradient-norm plateau is *not* the loss-floor point: the loss improves ~6× after `‖∇B‖` falls 2 orders, and cutting there costs 6.8× at the core matrix (and varies 0.28–6.4× per layer). The corrected recipe: **merge by linearity, gate stop/freeze on the loss floor, not the gradient norm.**
-
----
-
-## What this series builds toward
-
-The 13-repo study series maps LoRA from decomposition through deployment on CPU-only real SLM weights. This repo is the mechanism core: unit 1 measures the path, unit 2 the landing, unit 3 shows the constraint wins by filtering the harmful tail, units 4–5 map the rank·LR·α operating space, unit 6 turns the norm plateau into a merge criterion (early stop, freeze, exact merge). Each notebook is self-contained and every number is measured on real matrices.
