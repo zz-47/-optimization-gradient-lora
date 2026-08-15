@@ -4,9 +4,9 @@ LoRA gradient geometry on real SLM weights — norm decay to delta structure to 
 
 ---
 
-## Units
+## Case-Studies
 
-| # | Unit | Claim to test | Status |
+| # | Study| Claim to test | Status |
 |---|------|-------------|--------|
 | 1 | Gradient norm geometry | The LoRA descent is structured: `A` frozen at step 0, norm decay, matrix-set gradient scale | ✅ Complete (4 experiments measured) |
 | 2 | The learned delta | The landing is concentrated at the injected rank and aligned with its own gradient | ✅ Complete (4 experiments measured) |
