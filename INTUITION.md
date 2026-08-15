@@ -76,7 +76,7 @@ The *why* behind every gradient we measured, and the one equation that makes eac
 
 ---
 
-## The four specialist takeaways
+## Four takeaways
 
 1. **Structured path** — LoRA descends with `A` frozen at step 0 (by `B₀=0`), norm decay, matrix-set gradient scale.
 2. **Filter, not match** — LoRA beats full-FT by filtering a harmful tail; the constraint is the win.
